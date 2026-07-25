@@ -72,10 +72,20 @@ not on the loader path, so the CUDA plugin fails to initialise and prints only a
 is smaller than every other method in the table. The benchmark overrides them on the command
 line so the comparison is like-for-like; the file's defaults are left untouched.
 
-**`OFFLINE_STEPS` must be at least `log_interval` (5000).** The validation forward pass that
-runs every `log_interval` steps compiles an extra graph and raises the GPU peak, so a shorter
-run under-reports it — QAM measures 254.0 MiB over 200 steps but 266.9 MiB over 10000.
+**Do not shorten `OFFLINE_STEPS`.** GPU peak climbs with step count before it saturates,
+because JAX dispatches asynchronously: the Python loop runs ahead of the device and in-flight
+buffers accumulate until backpressure caps the pipeline depth. For FAV, with eval and
+validation disabled so only step count varies:
 
-**FAV's `gen_multiplier` changes the result.** The default 8 gives 254.0 MiB. A sweep gives
-254.0 MiB at 8, 7 and 6; 230.3 MiB at 5; and 150.1 MiB at 4. Any table entry for FAV should
-say which value it used.
+| steps | 200 | 500 | 1000 | 3000 | 10000 |
+|---|---|---|---|---|---|
+| GPU peak | 227.7 | 231.7 | 238.0 | 253.1 | 254.0 MiB |
+
+Light methods (FQL, IFQL, IQL, ReBRAC, RLPD) read the same at 200 steps as at 10000 — their
+per-iteration buffers are too small for pipeline depth to matter. Heavy ones (QAM, FAV) do
+not. A table that mixes the two is comparing saturated against unsaturated numbers. The
+default 10000 steps is past saturation for every method here.
+
+**GPU peak plateaus near 254 MiB.** Several unrelated configurations land on exactly 254.0
+MiB — FAV at `gen_multiplier` 8, 7 and 6, and both FAV and QAM at 10000 steps with eval and
+validation off. Differences between methods in that range are not resolvable by this metric.
