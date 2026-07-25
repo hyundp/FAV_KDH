@@ -42,14 +42,25 @@ else
   rm -f /tmp/mujoco210.tar.gz
 fi
 
-echo "=== 3/5 python dependencies ==="
-# d4rl is not on PyPI; pip freeze cannot round-trip it, so install it from source first.
+echo "=== 3/6 python dependencies ==="
+for tool in gcc patchelf; do
+  command -v "$tool" >/dev/null 2>&1 || echo "WARNING: ${tool} not found; mujoco_py cannot build without it." >&2
+done
+echo "If mujoco_py fails to build, install: gcc patchelf libglew-dev libosmesa6-dev"
+
 pip install --upgrade pip
+# d4rl needs Cython < 3 present before its own build runs.
 pip install "cython<3"
-pip install "git+https://github.com/Farama-Foundation/d4rl@master#egg=d4rl"
 pip install -r requirements.lock.txt
 
-echo "=== 4/5 scene-play dataset ==="
+echo "=== 4/6 building mujoco_py ==="
+# mujoco_py compiles a Cython extension on first import. Trigger it now so a build failure
+# surfaces during setup instead of halfway through the benchmark.
+# shellcheck source=/dev/null
+source "${REPO_ROOT}/bash_scripts/env_paths.sh"
+python -c "import mujoco_py; print('mujoco_py ok')"
+
+echo "=== 5/6 scene-play dataset ==="
 python - <<'PY'
 import ogbench
 
@@ -57,9 +68,7 @@ ogbench.download_datasets(['scene-play-v0'])
 print('dataset ready')
 PY
 
-echo "=== 5/5 verifying JAX sees the GPU ==="
-# shellcheck source=/dev/null
-source "${REPO_ROOT}/bash_scripts/env_paths.sh"
+echo "=== 6/6 verifying JAX sees the GPU ==="
 python - <<'PY'
 import sys
 
