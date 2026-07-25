@@ -42,25 +42,41 @@ Re-print the table at any time with:
 python bash_scripts/collect_mem.py --run_group=mem
 ```
 
-Overridable via environment variables: `ENV_NAME`, `OFFLINE_STEPS`, `RUN_GROUP`, `SEED`, `GPU_ID`.
+Overridable via environment variables: `ENV_NAME`, `OFFLINE_STEPS`, `RUN_GROUP`, `SEED`,
+`GPU_ID`, `EVAL_INTERVAL`, `LOG_INTERVAL`.
+
+Policy evaluation is off by default (`EVAL_INTERVAL=0`). It is not part of the training
+memory footprint — it holds 50 episodes of trajectories plus a MuJoCo eval environment,
+which adds about 0.27 GB of host RSS to every method alike — and it dominates wall-clock,
+taking longer than the 10000 training steps it accompanies. To measure with evaluation
+included:
+
+```bash
+EVAL_INTERVAL=100000 bash bash_scripts/qam_dsrl_mem.sh
+```
 
 ## Reference results
 
 `scene-play-singletask-task1-v0`, 10000 offline steps, seed 0, one method at a time on a
-single GPU, measured on an **RTX A6000**:
+single GPU, measured on an **RTX A6000**. The default column has evaluation off; the right
+column is the same runs with `EVAL_INTERVAL=100000`.
 
-| Method | GPU peak | Host RAM peak |
-|---|---|---|
-| QAM | 266.9 MiB | 3.04 GB |
-| DSRL | 180.5 MiB | 3.12 GB |
-| FQL | 138.8 MiB | 2.79 GB |
-| IFQL | 132.3 MiB | 2.63 GB |
-| IQL | 140.2 MiB | 2.61 GB |
-| ReBRAC | 134.2 MiB | 2.59 GB |
-| RLPD | 113.4 MiB | 2.70 GB |
-| FAV | 254.0 MiB | 2.74 GB |
+| Method | GPU peak | Host RAM peak | GPU peak (with eval) | Host RAM peak (with eval) |
+|---|---|---|---|---|
+| QAM | 254.0 MiB | 2.91 GB | 266.9 MiB | 3.04 GB |
+| DSRL | 180.3 MiB | 2.98 GB | 180.5 MiB | 3.12 GB |
+| FQL | 138.8 MiB | 2.65 GB | 138.8 MiB | 2.79 GB |
+| IFQL | 132.3 MiB | 2.50 GB | 132.3 MiB | 2.63 GB |
+| IQL | 140.2 MiB | 2.54 GB | 140.2 MiB | 2.61 GB |
+| ReBRAC | 134.2 MiB | 2.43 GB | 134.2 MiB | 2.59 GB |
+| RLPD | 113.4 MiB | 2.57 GB | 113.4 MiB | 2.66 GB |
+| FAV | 254.0 MiB | 2.62 GB | 254.0 MiB | 2.74 GB |
 
 GPU peak is reproducible to well under 1% across repeated runs; host RAM peak to about 1%.
+
+Note that QAM and FAV are indistinguishable at 254.0 MiB with evaluation off. QAM's higher
+figure with evaluation on comes from the inference path — sampling through a 10-step flow —
+not from training.
 
 ## Notes
 
@@ -92,6 +108,19 @@ Light methods (FQL, IFQL, IQL, ReBRAC, RLPD) read the same at 200 steps as at 10
 per-iteration buffers are too small for pipeline depth to matter. Heavy ones (QAM, FAV) do
 not. A table that mixes the two is comparing saturated against unsaturated numbers. The
 default 10000 steps is past saturation for every method here.
+
+**GPU peak is sensitive to device synchronisation, not just to the model.** Disabling the
+validation pass (`LOG_INTERVAL=999999`) *raises* FQL's GPU peak from 138.8 to 154.9 MiB: that
+pass pulls values back to the host every `LOG_INTERVAL` steps, which drains the dispatch
+pipeline. Remove the sync and the pipeline runs deeper. Treat this metric as a property of
+the configuration, not an intrinsic property of the method.
+
+**Host RAM peak has a floor around 2.5 GB and barely moves.** Only two knobs affect it:
+evaluation (about 0.14 GB) and the validation pass (about 0.17 GB). `buffer_size` does not
+matter at all, despite the replay buffer over-allocating to 2M rows for a 1.001M-transition
+dataset — the untouched pages never become resident, so they never enter RSS. Step count
+does not matter either. Roughly 0.9 GB of the floor is imports plus JAX GPU context
+initialisation, and the rest is the dataset.
 
 **GPU peak plateaus near 254 MiB.** Several unrelated configurations land on exactly 254.0
 MiB — FAV at `gen_multiplier` 8, 7 and 6, and both FAV and QAM at 10000 steps with eval and

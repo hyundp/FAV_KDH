@@ -34,6 +34,12 @@ OFFLINE_STEPS="${OFFLINE_STEPS:-10000}"
 RUN_GROUP="${RUN_GROUP:-mem}"
 SEED="${SEED:-0}"
 GPU_ID="${GPU_ID:-0}"
+# Policy evaluation is not part of the training footprint: it holds 50 episodes of
+# trajectories plus a MuJoCo eval environment, adding roughly 0.27 GB of host RSS to every
+# method alike, and it dominates wall-clock. 0 disables it; set 100000 to measure with it.
+EVAL_INTERVAL="${EVAL_INTERVAL:-0}"
+# The validation forward pass runs every LOG_INTERVAL steps and compiles its own graph.
+LOG_INTERVAL="${LOG_INTERVAL:-5000}"
 
 # agents/aligen.py is FAV. RLPD is run with the same 512x4 networks as every other method;
 # the defaults in agents/rlpd.py are (256, 256), which makes it incomparable to the rest.
@@ -56,11 +62,13 @@ for AGENT in "${AGENTS[@]}"; do
     EXTRA_ARGS+=(--agent.value_hidden_dims="(512,512,512,512)")
   fi
 
-  echo "GPU ${GPU_ID}: ${AGENT} | ${ENV} | ${OFFLINE_STEPS} steps | seed ${SEED}"
+  echo "GPU ${GPU_ID}: ${AGENT} | ${ENV} | ${OFFLINE_STEPS} steps | seed ${SEED} | eval_interval ${EVAL_INTERVAL}"
   CUDA_VISIBLE_DEVICES=${GPU_ID} python main.py \
     --agent="${AGENT}" \
     --env_name="${ENV}" \
     --offline_steps="${OFFLINE_STEPS}" \
+    --eval_interval="${EVAL_INTERVAL}" \
+    --log_interval="${LOG_INTERVAL}" \
     --run_group="${RUN_GROUP}" \
     --seed="${SEED}" \
     --nouse_wandb \
