@@ -18,7 +18,7 @@ MUJOCO_DIR="$HOME/.mujoco"
 cd "$(dirname "$0")/.."
 REPO_ROOT="$(pwd)"
 
-echo "=== 1/5 conda environment: ${ENV_NAME} (python ${PYTHON_VERSION}) ==="
+echo "=== 1/7 conda environment: ${ENV_NAME} (python ${PYTHON_VERSION}) ==="
 if ! command -v conda >/dev/null 2>&1; then
   echo "conda not found on PATH." >&2
   exit 1
@@ -31,7 +31,7 @@ else
 fi
 conda activate "${ENV_NAME}"
 
-echo "=== 2/5 MuJoCo 2.1.0 (for mujoco_py) ==="
+echo "=== 2/7 MuJoCo 2.1.0 (for mujoco_py) ==="
 if [ -d "${MUJOCO_DIR}/mujoco210" ]; then
   echo "${MUJOCO_DIR}/mujoco210 already present."
 else
@@ -42,25 +42,54 @@ else
   rm -f /tmp/mujoco210.tar.gz
 fi
 
-echo "=== 3/6 python dependencies ==="
-for tool in gcc patchelf; do
-  command -v "$tool" >/dev/null 2>&1 || echo "WARNING: ${tool} not found; mujoco_py cannot build without it." >&2
-done
-echo "If mujoco_py fails to build, install: gcc patchelf libglew-dev libosmesa6-dev"
+echo "=== 3/7 build prerequisites for mujoco_py ==="
+# mujoco_py compiles a Cython extension against OSMesa headers. Missing system packages
+# surface as a confusing "GL/osmesa.h: No such file or directory" much later, so check here.
+APT_REQUIRED="libosmesa6-dev libglew-dev patchelf build-essential"
+# Names vary across Ubuntu releases (libgl1-mesa-glx was renamed to libgl1 in 24.04), so
+# these are attempted individually and a failure is not fatal.
+APT_OPTIONAL="libgl1-mesa-glx libgl1 libglfw3"
 
+missing=0
+command -v gcc >/dev/null 2>&1 || missing=1
+command -v patchelf >/dev/null 2>&1 || missing=1
+[ -f /usr/include/GL/osmesa.h ] || missing=1
+
+if [ "$missing" -eq 1 ]; then
+  if [ "$(id -u)" -eq 0 ] && command -v apt-get >/dev/null 2>&1; then
+    echo "Installing: ${APT_REQUIRED}"
+    apt-get update -qq
+    # shellcheck disable=SC2086
+    apt-get install -y -qq ${APT_REQUIRED}
+    for pkg in ${APT_OPTIONAL}; do
+      apt-get install -y -qq "$pkg" >/dev/null 2>&1 || true
+    done
+  else
+    echo "Missing build prerequisites for mujoco_py. Install them and re-run:" >&2
+    echo "  sudo apt-get install -y ${APT_REQUIRED}" >&2
+    exit 1
+  fi
+fi
+
+if [ ! -f /usr/include/GL/osmesa.h ]; then
+  echo "GL/osmesa.h still missing after install; mujoco_py cannot build." >&2
+  exit 1
+fi
+
+echo "=== 4/7 python dependencies ==="
 pip install --upgrade pip
 # d4rl needs Cython < 3 present before its own build runs.
 pip install "cython<3"
 pip install -r requirements.lock.txt
 
-echo "=== 4/6 building mujoco_py ==="
+echo "=== 5/7 building mujoco_py ==="
 # mujoco_py compiles a Cython extension on first import. Trigger it now so a build failure
 # surfaces during setup instead of halfway through the benchmark.
 # shellcheck source=/dev/null
 source "${REPO_ROOT}/bash_scripts/env_paths.sh"
 python -c "import mujoco_py; print('mujoco_py ok')"
 
-echo "=== 5/6 scene-play dataset ==="
+echo "=== 6/7 scene-play dataset ==="
 python - <<'PY'
 import ogbench
 
@@ -68,7 +97,7 @@ ogbench.download_datasets(['scene-play-v0'])
 print('dataset ready')
 PY
 
-echo "=== 6/6 verifying JAX sees the GPU ==="
+echo "=== 7/7 verifying JAX sees the GPU ==="
 python - <<'PY'
 import sys
 

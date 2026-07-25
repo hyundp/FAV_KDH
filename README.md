@@ -8,7 +8,14 @@ Measures two numbers for each offline RL method in the comparison table:
 
 ## Setup
 
-On a fresh machine with `conda` and an NVIDIA driver installed:
+Needs `conda`, an NVIDIA driver, and the system packages mujoco_py compiles against. As root
+the setup script installs those itself; otherwise install them first:
+
+```bash
+sudo apt-get install -y libosmesa6-dev libglew-dev patchelf build-essential
+```
+
+Then:
 
 ```bash
 git clone https://github.com/hyundp/FAV_KDH.git
